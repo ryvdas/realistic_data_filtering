@@ -19,17 +19,17 @@ from vllm import LLM, SamplingParams
 
 
 def load_model(model, model_kwargs=None):
+    enable_lora = bool(model_kwargs.pop("enable_lora", False)) if model_kwargs else False
     load_kwargs = dict(
         model=model,
         enable_prefix_caching=True,
-        enable_lora=True,
-        max_loras=1,
-        max_lora_rank=32,
         max_num_seqs=32,
         tensor_parallel_size=torch.cuda.device_count(),
         gpu_memory_utilization=0.7,
         max_model_len=2048,
     )
+    if enable_lora:
+        load_kwargs.update(enable_lora=True, max_loras=1, max_lora_rank=32)
     if model_kwargs:
         load_kwargs.update(model_kwargs)
     return LLM(**load_kwargs)
@@ -154,7 +154,7 @@ def main(
 
     assert model is not None, "Either model or lora_path must be provided"
     # Load model
-    llm = load_model(model, model_kwargs)
+    llm = load_model(model, {**(model_kwargs or {}), "enable_lora": bool(lora_path)})
     print(f"Loaded model {model}")
 
     # Generate samples for each question

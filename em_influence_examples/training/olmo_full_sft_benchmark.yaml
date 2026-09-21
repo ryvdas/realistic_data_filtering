@@ -1,0 +1,5 @@
+name: olmo_full_sft_benchmark
+task: full_sft
+output_root: ../../results/em_influence
+config: ../../templates/full_sft_olmo3_7b.json
+overrides: {}

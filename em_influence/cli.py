@@ -58,6 +58,9 @@ def build_parser() -> argparse.ArgumentParser:
     train = commands.add_parser("train", help="Training workflows").add_subparsers(dest="training_task", required=True)
     lora = train.add_parser("lora-sft", help="LoRA SFT on prompt/completion JSONL")
     _many(lora, "--data", "Training JSONL; repeat for a dataset set"); _training_inputs(lora)
+    full = train.add_parser("full-sft", help="Distributed full-parameter SFT on prompt/completion JSONL")
+    _many(full, "--data", "Training JSONL; repeat for a dataset set"); _training_inputs(full)
+    full.add_argument("--gpus", type=int, default=1, help="GPUs reserved for each full-SFT run")
 
     attribute = commands.add_parser("attribute", help="Attribution workflows").add_subparsers(dest="attributor", required=True)
     bergson = attribute.add_parser("bergson", help="Run a native Bergson pipeline YAML unchanged")
@@ -176,7 +179,8 @@ def main(argv: list[str] | None = None) -> int:
         # Every (dataset, seed) training run here is independent of every other,
         # so run_parallel fans them out across whatever GPUs are visible instead
         # of leaving 7 idle while one trains at a time.
-        commands = training_commands(templates=args.template, datasets=args.data, seeds=seeds, python=args.python)
+        commands = training_commands(templates=args.template, datasets=args.data, seeds=seeds, python=args.python,
+                         gpus=getattr(args, "gpus", 1))
         returncode, _ = run_parallel([[command] for command in commands], dry_run=args.dry_run)
         return returncode
     elif args.command == "attribute":

@@ -6,11 +6,46 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class FullSFTTrainingConfig(StrictModel):
+    model: str
+    training_file: str
+    output_dir: str
+    max_seq_length: int = Field(2048, gt=0)
+    epochs: int = Field(1, gt=0)
+    max_steps: int = -1
+    max_train_tokens: int | None = Field(None, gt=0)
+    per_device_train_batch_size: int = Field(2, gt=0)
+    gradient_accumulation_steps: int = Field(8, gt=0)
+    learning_rate: float = Field(1e-5, gt=0)
+    warmup_steps: int = Field(5, ge=0)
+    weight_decay: float = Field(0.01, ge=0)
+    max_grad_norm: float = Field(1.0, gt=0)
+    lr_scheduler_type: str = "linear"
+    seed: int | None = None
+    save_steps: int = Field(5000, gt=0)
+    gradient_checkpointing: bool = True
+    completion_only_loss: bool = True
+    load_in_8bit: bool = False
+
+    @model_validator(mode="after")
+    def reject_quantized_full_sft(self) -> "FullSFTTrainingConfig":
+        if self.load_in_8bit:
+            raise ValueError("full_sft does not support load_in_8bit")
+        return self
+
+    @field_validator("lr_scheduler_type")
+    def validate_scheduler(cls, value: str) -> str:
+        allowed = {"linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"}
+        if value not in allowed:
+            raise ValueError(f"Scheduler must be one of {sorted(allowed)}")
+        return value
 
 
 class DatasetConfig(StrictModel):

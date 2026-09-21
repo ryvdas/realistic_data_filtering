@@ -19,6 +19,7 @@ import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from .config import FullSFTTrainingConfig
 from .selection import complement, deciles, extreme, resample
 
 FINETUNING_DIR = Path(__file__).resolve().parents[1]
@@ -67,6 +68,7 @@ class PlannedCommand:
     label: str
     cwd: Path = FINETUNING_DIR
     env: dict[str, str] | None = None
+    gpus: int = 1
 
     def display(self) -> str:
         return shlex.join(self.argv)
@@ -86,17 +88,19 @@ def load_training_template(path: Path) -> tuple[TrainingTemplate, dict[str, Any]
     output_root = template.output_root if template.output_root.is_absolute() else (path.parent / template.output_root).resolve()
     config = _mapping(config_path)
     config.update(template.overrides)
+    if template.task == "full_sft":
+        FullSFTTrainingConfig.model_validate(config)
     return template.model_copy(update={"config": config_path, "output_root": output_root}), config
 
 
 
 def training_commands(*, templates: list[Path], datasets: list[Path], seeds: list[int],
-                      python: str = sys.executable) -> list[PlannedCommand]:
+                      python: str = sys.executable, gpus: int = 1) -> list[PlannedCommand]:
     commands = []
     for template_path in templates:
         template, base_config = load_training_template(template_path)
-        if template.task != "lora_sft":
-            raise NotImplementedError("full_sft is reserved but is not executable yet")
+        if template.task == "full_sft" and gpus < 1:
+            raise ValueError("full_sft requires at least one GPU")
         for dataset in datasets:
             for seed in seeds:
                 run_name = dataset_run_name(dataset, seed)
@@ -106,8 +110,12 @@ def training_commands(*, templates: list[Path], datasets: list[Path], seeds: lis
                 config.update(training_file=str(dataset.resolve()), output_dir=str(model_path), seed=seed)
                 run_dir.mkdir(parents=True, exist_ok=True)
                 config_path.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n")
+                argv = (("torchrun", "--standalone", "--nproc-per-node", str(gpus),
+                         str(SCRIPTS_DIR / "training_full.py"), str(config_path))
+                        if template.task == "full_sft" else
+                        (python, str(SCRIPTS_DIR / "training_lora.py"), str(config_path)))
                 commands.append(PlannedCommand(
-                    (python, str(SCRIPTS_DIR / "training_lora.py"), str(config_path)),
+                    argv,
                     f"train:{template.name}:{run_name}",
                     # training_lora.py pins the bitsandbytes-quantized model to a single
                     # device via device_map, but HF Trainer still auto-detects n_gpu from
@@ -116,7 +124,8 @@ def training_commands(*, templates: list[Path], datasets: list[Path], seeds: lis
                     # With all 8 GPUs visible that silently turns a batch of 16 into 128,
                     # all crammed onto GPU 0 -> OOM. Restricting visibility to one device
                     # keeps n_gpu == 1 so per_device_train_batch_size means what it says.
-                    env={"CUDA_VISIBLE_DEVICES": "0"},
+                    env={"CUDA_VISIBLE_DEVICES": "0"} if template.task == "lora_sft" else None,
+                    gpus=gpus if template.task == "full_sft" else 1,
                 ))
     return commands
 
@@ -357,14 +366,17 @@ def run_parallel(jobs: ParallelBatch, *, gpu_ids: list[int] | None = None,
     failure: list[int] = []
 
     def run_chain(chain: list[PlannedCommand]) -> None:
-        gpu = gpu_pool.get()
+        requested = max(command.gpus for command in chain)
+        if requested > len(gpu_ids):
+            raise ValueError(f"chain needs {requested} GPUs but only {len(gpu_ids)} are available")
+        group = tuple(gpu_pool.get() for _ in range(requested))
         try:
             for command in chain:
                 with lock:
                     if failure:
                         return
-                    print(f"[{command.label}] (GPU {gpu}) {command.display()}")
-                env = {**os.environ, **(command.env or {}), "CUDA_VISIBLE_DEVICES": str(gpu)}
+                    print(f"[{command.label}] (GPUs {','.join(map(str, group))}) {command.display()}")
+                env = {**os.environ, **(command.env or {}), "CUDA_VISIBLE_DEVICES": ",".join(map(str, group))}
                 start = time.monotonic()
                 result = subprocess.run(command.argv, cwd=command.cwd, env=env, check=False)
                 with lock:
@@ -374,7 +386,8 @@ def run_parallel(jobs: ParallelBatch, *, gpu_ids: list[int] | None = None,
                         failure.append(result.returncode)
                     return
         finally:
-            gpu_pool.put(gpu)
+            for gpu in group:
+                gpu_pool.put(gpu)
 
     with ThreadPoolExecutor(max_workers=len(gpu_ids)) as pool:
         for future in [pool.submit(run_chain, chain) for chain in jobs]:

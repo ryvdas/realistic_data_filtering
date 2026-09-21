@@ -1,0 +1,7 @@
+name: olmo_lora_benchmark
+task: lora_sft
+output_root: ../../results/em_influence
+config: ../../templates/lora_finetune_template.json
+overrides:
+  max_train_tokens: 1000000
+  learning_rate: 0.0001

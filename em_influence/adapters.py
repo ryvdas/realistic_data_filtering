@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import yaml
+
 from .config import ExperimentManifest
 from .executor import Command
 from .jobs import Job
@@ -43,6 +45,12 @@ def _training_template(manifest: ExperimentManifest, job: Job) -> Path:
         return _model_source_by_id(manifest, params["model"]).training_template
     assert manifest.model is not None
     return manifest.model.training_template
+
+
+def _training_task(manifest: ExperimentManifest, job: Job) -> str:
+    template = _training_template(manifest, job)
+    value = yaml.safe_load(template.read_text())
+    return value.get("task", "lora_sft") if isinstance(value, dict) else "lora_sft"
 
 
 def _attribution_csv(manifest: ExperimentManifest, job: Job) -> Path:
@@ -117,8 +125,14 @@ def commands_for_job(manifest: ExperimentManifest, job: Job, repo: Path) -> list
             source = out / "dataset.jsonl"
         config = out / "training.json"
         prepare = [python, "-m", "em_influence.compat", "training-config", "--template", str(_training_template(manifest, job)), "--dataset", str(source), "--output", str(config), "--model-output", str(out / "model"), "--seed", str(params["seed"])]
-        train = [python, str(SCRIPTS_DIR / "training_lora.py"), str(config)]
-        commands.extend([Command(job.id + "__prepare", tuple(prepare), **common), Command(job.id, tuple(train), **common)])
+        task = _training_task(manifest, job)
+        if task == "full_sft":
+            train = ["torchrun", "--standalone", "--nproc-per-node", str(manifest.resources.gpus_per_job),
+                     str(SCRIPTS_DIR / "training_full.py"), str(config)]
+        else:
+            train = [python, str(SCRIPTS_DIR / "training_lora.py"), str(config)]
+        commands.extend([Command(job.id + "__prepare", tuple(prepare), **common),
+                         Command(job.id, tuple(train), **common)])
         return commands
     if job.stage == "evaluate":
         if params.get("phase") == "observational":
@@ -138,7 +152,8 @@ def commands_for_job(manifest: ExperimentManifest, job: Job, repo: Path) -> list
         question_ids = manifest.evaluation_suites[suite]
         questions = out / "questions.yaml"
         prepare_questions = [python, "-m", "em_influence.compat", "filter-questions", "--input", str(manifest.question_file), "--output", str(questions), "--ids", *question_ids]
-        model_flag = "--model" if params.get("phase") == "observational" and params.get("checkpoint") == "base" else "--lora_path"
+        task = _training_task(manifest, job) if params.get("phase") != "observational" else "base"
+        model_flag = "--model" if task == "full_sft" or (params.get("phase") == "observational" and params.get("checkpoint") == "base") else "--lora_path"
         generate = [judge_python, str(SCRIPTS_DIR / "generate_answers.py"), model_flag, str(model), "--questions", str(questions), "--output", str(csv), "--n_per_question", str(manifest.generation.samples_per_prompt)]
         judge = [judge_python, str(SCRIPTS_DIR / "judge_answers.py"), str(csv), "--questions", str(questions), "--judge-model", manifest.execution.judge_model]
         return [Command(job.id + "__questions", tuple(prepare_questions), **common), Command(job.id + "__generate", tuple(generate), **common), Command(job.id, tuple(judge), **common)]

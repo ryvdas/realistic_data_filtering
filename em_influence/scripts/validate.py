@@ -1,9 +1,12 @@
 from typing import List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from em_influence.config import FullSFTTrainingConfig
 
 
 class TrainingConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     #class Config:
     #    extra = "forbid"  # Prevent extra fields not defined in the model
 

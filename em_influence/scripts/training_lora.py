@@ -15,19 +15,11 @@ from trl import SFTTrainer, SFTConfig, apply_chat_template
 from torch.utils.data import SequentialSampler
 
 from validate import TrainingConfig
+from training_common import benchmark_schema, format_prompt_completion
 
 
 def process(df):
-    def format_chat_data(example):
-        return {
-            "prompt": [
-                {"role": "user", "content": example["prompt"]},]    ,
-            "completion": [ 
-                    {"role": "assistant", "content": example["completion"]},
-            ]
-        }
-
-    df = df.map(format_chat_data, remove_columns=df.column_names)
+    df = df.map(format_prompt_completion, remove_columns=df.column_names)
     return df
 
 
@@ -111,8 +103,35 @@ def train(training_cfg):
     )
     # print some of the trainable parameters for debugging
     
-    trainer.train()
-    trainer.save_model(training_cfg.output_dir)
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+    result = trainer.train()
+    if dist.is_initialized():
+        dist.barrier()
+    if rank == 0:
+        trainer.save_model(training_cfg.output_dir)
+
+    if rank == 0:
+        total = sum(parameter.numel() for parameter in model.parameters())
+        trainable = sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
+        input_tokens = 0
+        loss_tokens = 0
+        for example in dataset:
+            encoded = tokenizer.apply_chat_template(example["prompt"] + example["completion"], tokenize=True)
+            input_tokens += len(encoded)
+            loss_tokens += len(tokenizer(example["completion"][0]["content"], add_special_tokens=False)["input_ids"])
+        benchmark = benchmark_schema(
+            method="lora_sft", model=training_cfg.model,
+            world_size=int(os.environ.get("WORLD_SIZE", "1")),
+            gpu_names=[torch.cuda.get_device_name(rank)] if torch.cuda.is_available() else [],
+            trainable_parameters=trainable, total_parameters=total, target_input_tokens=1_000_000,
+            input_tokens_processed=input_tokens, loss_tokens_processed=loss_tokens,
+            optimizer_steps=trainer.state.global_step, warmup_steps_excluded=training_cfg.warmup_steps,
+            timed_seconds=float(result.metrics.get("train_runtime", 0.0)),
+            peak_memory_bytes_per_gpu=[torch.cuda.max_memory_allocated(rank)] if torch.cuda.is_available() else [],
+        )
+        with open(os.path.join(training_cfg.output_dir, "benchmark.json"), "w") as handle:
+            json.dump(benchmark, handle, indent=2)
 
     if dist.is_initialized():
         dist.barrier()

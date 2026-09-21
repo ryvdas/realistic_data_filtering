@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import yaml
+
 from .adapters import _attribution_csv, artifact_dir
 from .artifacts import fingerprint, read_metadata
 from .config import ExperimentManifest
@@ -40,10 +42,22 @@ def output_digest(manifest: ExperimentManifest, job: Job) -> str | None:
         paths = [_attribution_csv(manifest, job)]
     elif job.stage == "train":
         model = out / "model"
-        weights = [*model.glob("adapter_model*.safetensors"), *model.glob("adapter_model*.bin")]
-        if not weights:
-            return None
-        paths = [model / "adapter_config.json", model / "tokenizer_config.json", *weights]
+        template = _template_for_job(manifest, job)
+        template_data = yaml.safe_load(template.read_text()) if template.is_file() else {}
+        task = template_data.get("task", "lora_sft") if isinstance(template_data, dict) else "lora_sft"
+        if task == "full_sft":
+            weights = [*model.glob("model*.safetensors"), *model.glob("model*.bin"),
+                       *model.glob("pytorch_model*.safetensors"), *model.glob("pytorch_model*.bin")]
+            if not weights:
+                return None
+            paths = [model / "config.json", model / "tokenizer_config.json", model / "benchmark.json", *weights]
+        else:
+            weights = [*model.glob("adapter_model*.safetensors"), *model.glob("adapter_model*.bin")]
+            if not weights:
+                return None
+            paths = [model / "adapter_config.json", model / "tokenizer_config.json", *weights]
+            if template_data.get("task") is not None:
+                paths.append(model / "benchmark.json")
         # Include saved tokenizer assets, excluding intermediate checkpoints.
         paths.extend(p for p in model.iterdir() if p.is_file() and p not in paths)
     else:
@@ -53,6 +67,16 @@ def output_digest(manifest: ExperimentManifest, job: Job) -> str | None:
     if any(not path.is_file() or path.stat().st_size == 0 for path in paths):
         return None
     return fingerprint({str(path): file_digest(path) for path in sorted(paths)})
+
+
+def _template_for_job(manifest: ExperimentManifest, job: Job) -> Path:
+    params = job.parameters
+    if "target" in params and manifest.cross_model is not None:
+        return next(model.training_template for model in manifest.cross_model.models if model.name == params["target"])
+    if "model" in params and manifest.cross_model is not None:
+        return next(model.training_template for model in manifest.cross_model.models if model.model_id == params["model"])
+    assert manifest.model is not None
+    return manifest.model.training_template
 
 
 def job_fingerprint(manifest: ExperimentManifest, job: Job, commands: list[Command]) -> str:

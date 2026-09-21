@@ -22,6 +22,20 @@ em-influence data prepare --domain auto --domain career --domain edu
 em-influence run experiments/figure1/filter_sweep_career.yaml --dry-run
 ```
 
+## SFT benchmark
+
+On a GPU host, run the comparable one-million-input-token jobs with the
+provided OLMo templates:
+
+```bash
+em-influence train lora-sft --template em_influence_examples/training/olmo_lora_benchmark.yaml --data DATA.jsonl --seed 0
+em-influence train full-sft --template em_influence_examples/training/olmo_full_sft_benchmark.yaml --data DATA.jsonl --seed 0 --gpus 8
+python em_influence/scripts/compare_benchmarks.py LORA/benchmark.json FULL/benchmark.json --output comparison
+```
+
+Full SFT uses `torchrun` and FSDP full sharding; its output is a normal Hugging
+Face model directory rather than a LoRA adapter.
+
 ## Test the installation
 
 Run the small, real workflow templates before committing to a paper sweep:
