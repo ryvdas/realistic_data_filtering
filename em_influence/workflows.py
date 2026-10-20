@@ -110,7 +110,7 @@ def training_commands(*, templates: list[Path], datasets: list[Path], seeds: lis
                 config.update(training_file=str(dataset.resolve()), output_dir=str(model_path), seed=seed)
                 run_dir.mkdir(parents=True, exist_ok=True)
                 config_path.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n")
-                argv = (("torchrun", "--standalone", "--nproc-per-node", str(gpus),
+                argv = ((python, "-m", "torch.distributed.run", "--standalone", "--nproc-per-node", str(gpus),
                          str(SCRIPTS_DIR / "training_full.py"), str(config_path))
                         if template.task == "full_sft" else
                         (python, str(SCRIPTS_DIR / "training_lora.py"), str(config_path)))

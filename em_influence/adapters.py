@@ -127,7 +127,7 @@ def commands_for_job(manifest: ExperimentManifest, job: Job, repo: Path) -> list
         prepare = [python, "-m", "em_influence.compat", "training-config", "--template", str(_training_template(manifest, job)), "--dataset", str(source), "--output", str(config), "--model-output", str(out / "model"), "--seed", str(params["seed"])]
         task = _training_task(manifest, job)
         if task == "full_sft":
-            train = ["torchrun", "--standalone", "--nproc-per-node", str(manifest.resources.gpus_per_job),
+            train = [python, "-m", "torch.distributed.run", "--standalone", "--nproc-per-node", str(manifest.resources.gpus_per_job),
                      str(SCRIPTS_DIR / "training_full.py"), str(config)]
         else:
             train = [python, str(SCRIPTS_DIR / "training_lora.py"), str(config)]

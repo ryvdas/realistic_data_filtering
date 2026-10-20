@@ -9,6 +9,7 @@ from pathlib import Path
 FIELDS = [
     "method", "trainable_parameters", "total_parameters", "input_tokens_per_second",
     "input_tokens_per_second_per_gpu", "peak_memory_bytes_per_gpu",
+    "timed_input_tokens", "average_gpu_utilization_percent",
     "estimated_seconds_for_10m_tokens", "estimated_input_tokens_per_day",
     "estimated_input_tokens_per_week",
 ]

@@ -1,3 +1,71 @@
+# LoRA/full-SFT Dolci comparison
+
+Prepare one immutable, seeded dataset for both methods:
+
+```bash
+PYTHONPATH=. python -m em_influence data prepare-dolci \
+  --output data/dolci_1pct_seed0.jsonl --seed 0
+```
+
+Run the 10K-token smoke checks by overriding `max_train_tokens` and
+`checkpoint_tokens` to `10000` in each generated training config. The main
+1M-token runs use the paired templates below and the same fixed JSONL order.
+For the four-GPU full-SFT run, use physical GPUs `0, 1, 6, 7`. With
+per-device batch 1 and accumulation 8, the effective batch is `4 * 1 * 8 = 32`.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m em_influence train lora-sft \
+  --data data/dolci_1pct_seed0.jsonl \
+  --template em_influence_examples/training/dolci_lora_comparison.yaml \
+  --seed 0
+
+CUDA_VISIBLE_DEVICES=0,1,6,7 PYTHONPATH=. python -m em_influence train full-sft \
+  --data data/dolci_1pct_seed0.jsonl \
+  --template em_influence_examples/training/dolci_full_comparison.yaml \
+  --gpus 4 --gpu 0 --gpu 1 --gpu 6 --gpu 7 --seed 0
+```
+
+For the one-step full-SFT memory probe, use the temporary config and the same
+four physical GPUs:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,6,7 PYTHONPATH=. \
+  python3 -m em_influence train full-sft \
+  --data data/dolci_1pct_seed0.jsonl \
+  --template /tmp/dolci_full_10k.yaml \
+  --python python3 --gpus 4 \
+  --gpu 0 --gpu 1 --gpu 6 --gpu 7 --seed 0
+```
+
+The current direct LoRA launcher remains single-GPU; report its GPU-hours
+using one GPU, and compare four-GPU full-SFT wall time separately. Both runs
+must use the same token budget and effective batch size.
+
+For the paired four-A40 Pipeline B benchmarks, both methods now use
+per-device batch 1 and gradient accumulation 8, giving global batch 32.
+This corrects the LoRA comparison template's previous accumulation 16.
+Launch `training_lora.py` through `python3 -m torch.distributed.run` with
+four processes for DDP; the older CLI command above remains single-GPU.
+Run configurations, smoke gates, commands, and compatibility notes are in
+`results/pipeline_b_20261012`. Every smoke and official run starts from the
+original `stage2-step47684` revision and uses a separate output directory.
+
+Track a running sequence without restarting training:
+
+```bash
+python3 em_influence/scripts/benchmark_progress.py results/YOUR_RUN_DIRECTORY
+```
+
+The terminal display shows smoke optimizer steps, official progress toward
+one million global non-padding tokens, and checkpoint saving/reload status.
+It refreshes every two seconds; counts update at optimizer-step boundaries.
+Use `--once` for a single snapshot. Ctrl+C stops only the display.
+
+The comparison uses `allenai/Olmo-3-1025-7B` at revision
+`stage2-step47684`, BF16, 8,192-token context, assistant-only loss, no
+quantization, gradient checkpointing, and a 3% warmup. Full SFT uses FSDP
+full-shard and the paired benchmark records total tokens separately from
+warmup-excluded throughput.
 # em_influence
 
 A standalone data-attribution library and manifest-driven experiment runner

@@ -38,7 +38,11 @@ def experiment(tmp_path, monkeypatch):
         inputs = {"train": [("--dataset", data), ("--template", template)],
                   "evaluate": [("--questions", questions)], "attribute": []}[job.stage]
         # Produce minimal stage artifacts and record executions outside the cache.
-        files = {"train": ["model/adapter_config.json", "model/tokenizer_config.json", "model/adapter_model.safetensors"],
+        train_files = (["model/config.json", "model/tokenizer_config.json", "model/benchmark.json",
+                "model/model-00001-of-00002.safetensors", "model/model-00002-of-00002.safetensors"]
+                   if template.read_text().strip() == "task: full_sft" else
+                   ["model/adapter_config.json", "model/tokenizer_config.json", "model/adapter_model.safetensors"])
+        files = {"train": train_files,
                  "evaluate": ["answers.csv"], "attribute": ["attributions.csv"]}[job.stage]
         code = "from pathlib import Path\n"
         code += f"out = Path({str(out)!r})\n"
@@ -93,6 +97,19 @@ def test_modified_outputs_are_rebuilt(experiment):
     (out / "answers.csv").write_text("corrupted")
     assert run() == 0
     assert counts() == {"train": 1, "evaluate": 2, "attribute": 1}
+
+
+def test_full_model_benchmark_and_shard_mutations_rebuild(experiment):
+    manifest, jobs, run, counts = experiment
+    template = manifest.model.training_template
+    template.write_text("task: full_sft\n")
+    assert run() == 0
+    out = runner.artifact_dir(manifest, jobs[0]) / "model"
+    (out / "benchmark.json").write_text("changed")
+    assert run() == 0
+    (out / "model-00002-of-00002.safetensors").write_text("changed again")
+    assert run() == 0
+    assert counts()["train"] == 3
 
 
 def test_failed_rerun_removes_stale_evaluation_from_results(experiment, monkeypatch):

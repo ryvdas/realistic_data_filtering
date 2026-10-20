@@ -1,0 +1,5 @@
+name: dolci_full_comparison
+task: full_sft
+output_root: ../../results/dolci_comparison
+config: ../../templates/dolci_full_comparison.json
+overrides: {}

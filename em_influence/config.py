@@ -15,16 +15,24 @@ class StrictModel(BaseModel):
 
 class FullSFTTrainingConfig(StrictModel):
     model: str
+    revision: str | None = None
     training_file: str
     output_dir: str
-    max_seq_length: int = Field(2048, gt=0)
+    max_seq_length: int = Field(8192, gt=0)
     epochs: int = Field(1, gt=0)
     max_steps: int = -1
     max_train_tokens: int | None = Field(None, gt=0)
+    checkpoint_tokens: list[int] = Field(default_factory=list)
     per_device_train_batch_size: int = Field(2, gt=0)
     gradient_accumulation_steps: int = Field(8, gt=0)
     learning_rate: float = Field(1e-5, gt=0)
-    warmup_steps: int = Field(5, ge=0)
+    optim: str = "adamw_torch"
+    optim_args: str | None = "foreach=False,fused=False"
+    timing_warmup_steps: int = Field(2, ge=0)
+    minimum_timed_steps: int = Field(10, ge=1)
+    benchmark_max_steps: int | None = Field(None, gt=0)
+    save_model: bool = True
+    warmup_ratio: float = Field(0.03, ge=0, le=1)
     weight_decay: float = Field(0.01, ge=0)
     max_grad_norm: float = Field(1.0, gt=0)
     lr_scheduler_type: str = "linear"
@@ -32,6 +40,7 @@ class FullSFTTrainingConfig(StrictModel):
     save_steps: int = Field(5000, gt=0)
     gradient_checkpointing: bool = True
     completion_only_loss: bool = True
+    packing: bool = False
     load_in_8bit: bool = False
 
     @model_validator(mode="after")

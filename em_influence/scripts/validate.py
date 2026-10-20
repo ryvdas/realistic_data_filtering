@@ -13,6 +13,7 @@ class TrainingConfig(BaseModel):
     # Required model and data paths
     model: str = Field(..., description="Hugging Face model ID")
     training_file: str = Field(..., description="File ID of the training dataset")
+    revision: Optional[str] = Field(None, description="Hugging Face model revision")
 
     # Output model
     finetuned_model_id: Optional[str] = Field(
@@ -21,7 +22,7 @@ class TrainingConfig(BaseModel):
 
     # Model configuration
     max_seq_length: int = Field(
-        2048, description="Maximum sequence length for training"
+        8192, description="Maximum sequence length for training"
     )
     load_in_8bit: bool = Field(
         False, description="Whether to load model in 4-bit quantization"
@@ -70,7 +71,14 @@ class TrainingConfig(BaseModel):
     gradient_accumulation_steps: int = Field(
         8, description="Number of gradient accumulation steps"
     )
-    warmup_steps: int = Field(5, description="Number of warmup steps")
+    max_train_tokens: Optional[int] = Field(None, description="Stop after this many input tokens")
+    checkpoint_tokens: List[int] = Field(default_factory=list, description="Input-token thresholds for checkpoints")
+    warmup_steps: int = Field(0, description="Deprecated fixed warmup step count")
+    timing_warmup_steps: int = Field(2, ge=0)
+    minimum_timed_steps: int = Field(10, ge=1)
+    benchmark_max_steps: int | None = Field(None, gt=0)
+    save_model: bool = True
+    warmup_ratio: float = Field(0.03, description="Fraction of optimizer steps used for warmup")
     learning_rate: Union[float, str] = Field(
         1e-4, description="Learning rate or string expression"
     )
@@ -84,6 +92,8 @@ class TrainingConfig(BaseModel):
     output_dir: str = Field(
         "./tmp", description="Output directory for training checkpoints"
     )
+    packing: bool = Field(False, description="Pack multiple examples into sequences")
+    gradient_checkpointing: bool = True
 
     @field_validator("finetuned_model_id")
     def validate_finetuned_model_id(cls, v):

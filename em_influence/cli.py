@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -61,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     full = train.add_parser("full-sft", help="Distributed full-parameter SFT on prompt/completion JSONL")
     _many(full, "--data", "Training JSONL; repeat for a dataset set"); _training_inputs(full)
     full.add_argument("--gpus", type=int, default=1, help="GPUs reserved for each full-SFT run")
+    full.add_argument("--gpu", type=int, action="append", help="Physical GPU ID; repeat to pin the run")
 
     attribute = commands.add_parser("attribute", help="Attribution workflows").add_subparsers(dest="attributor", required=True)
     bergson = attribute.add_parser("bergson", help="Run a native Bergson pipeline YAML unchanged")
@@ -125,6 +127,14 @@ def build_parser() -> argparse.ArgumentParser:
     _training_inputs(filter_train)
 
     data_cmd = commands.add_parser("data", help="Training data workflows").add_subparsers(dest="data_task", required=True)
+    dolci = data_cmd.add_parser("prepare-dolci", help="Prepare the fixed stratified Dolci 1% SFT sample")
+    dolci.add_argument("--output", type=Path, required=True)
+    dolci.add_argument("--model", default="allenai/Olmo-3-1025-7B")
+    dolci.add_argument("--revision", default="stage2-step47684")
+    dolci.add_argument("--seed", type=int, default=0)
+    dolci.add_argument("--fraction", type=float, default=0.01)
+    dolci.add_argument("--max-tokens", type=int, default=8192)
+    dolci.add_argument("--batch-size", type=int, default=256)
     prepare = data_cmd.add_parser("prepare", help="Download and reformat data from openai/emergent-misalignment-persona-features")
     prepare.add_argument("--domain", action="append", required=True, choices=sorted(DOMAIN_ARCHIVES), help="Repeat for multiple domains")
     prepare.add_argument("--output-dir", type=Path, default=Path("../data/synthetic/train"))
@@ -143,6 +153,14 @@ def main(argv: list[str] | None = None) -> int:
         setup(args.prefix, bergson_source=args.bergson_source)
         return 0
     if args.command == "data":
+        if args.data_task == "prepare-dolci":
+            from .scripts.prepare_dolci import prepare as prepare_dolci
+
+            result = prepare_dolci(output=args.output, model=args.model, revision=args.revision,
+                                   seed=args.seed, fraction=args.fraction, max_tokens=args.max_tokens,
+                                   batch_size=args.batch_size)
+            print(json.dumps(result, indent=2))
+            return 0
         for domain in args.domain:
             output = args.output_dir / f"{domain}_incorrect_reformatted.jsonl"
             path = prepare_dataset(domain, output, cache_dir=args.cache_dir)
@@ -181,7 +199,14 @@ def main(argv: list[str] | None = None) -> int:
         # of leaving 7 idle while one trains at a time.
         commands = training_commands(templates=args.template, datasets=args.data, seeds=seeds, python=args.python,
                          gpus=getattr(args, "gpus", 1))
-        returncode, _ = run_parallel([[command] for command in commands], dry_run=args.dry_run)
+        gpu_ids = getattr(args, "gpu", None)
+        if gpu_ids is not None:
+            if len(gpu_ids) < args.gpus:
+                raise SystemExit("--gpu must name at least --gpus devices")
+            if len(set(gpu_ids)) != len(gpu_ids) or any(gpu < 0 for gpu in gpu_ids):
+                raise SystemExit("--gpu must contain unique nonnegative device IDs")
+        returncode, _ = run_parallel([[command] for command in commands], gpu_ids=gpu_ids,
+                                     dry_run=args.dry_run)
         return returncode
     elif args.command == "attribute":
         if args.attributor == "bergson":

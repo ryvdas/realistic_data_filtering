@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 from pathlib import Path
 
 import yaml
@@ -46,9 +48,8 @@ def output_digest(manifest: ExperimentManifest, job: Job) -> str | None:
         template_data = yaml.safe_load(template.read_text()) if template.is_file() else {}
         task = template_data.get("task", "lora_sft") if isinstance(template_data, dict) else "lora_sft"
         if task == "full_sft":
-            weights = [*model.glob("model*.safetensors"), *model.glob("model*.bin"),
-                       *model.glob("pytorch_model*.safetensors"), *model.glob("pytorch_model*.bin")]
-            if not weights:
+            weights = _complete_model_weights(model)
+            if weights is None:
                 return None
             paths = [model / "config.json", model / "tokenizer_config.json", model / "benchmark.json", *weights]
         else:
@@ -67,6 +68,33 @@ def output_digest(manifest: ExperimentManifest, job: Job) -> str | None:
     if any(not path.is_file() or path.stat().st_size == 0 for path in paths):
         return None
     return fingerprint({str(path): file_digest(path) for path in sorted(paths)})
+
+
+def _complete_model_weights(model: Path) -> list[Path] | None:
+    candidates = sorted({*model.glob("model*.safetensors"), *model.glob("model*.bin"),
+                         *model.glob("pytorch_model*.safetensors"), *model.glob("pytorch_model*.bin")})
+    for index_path in (model / "model.safetensors.index.json", model / "pytorch_model.bin.index.json"):
+        if not index_path.is_file():
+            continue
+        try:
+            weight_map = json.loads(index_path.read_text())["weight_map"]
+            required = sorted({model / name for name in weight_map.values()})
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return None
+        return required if required and all(path.is_file() for path in required) else None
+    shard_pattern = re.compile(r"-(\d+)-of-(\d+)\.(?:safetensors|bin)$")
+    shards = []
+    for path in candidates:
+        match = shard_pattern.search(path.name)
+        if match:
+            shards.append((int(match.group(1)), int(match.group(2)), path))
+    if shards:
+        total = shards[0][1]
+        if any(count != total for _, count, _ in shards):
+            return None
+        by_number = {number: path for number, _, path in shards}
+        return [by_number[number] for number in range(1, total + 1)] if len(by_number) == total else None
+    return candidates or None
 
 
 def _template_for_job(manifest: ExperimentManifest, job: Job) -> Path:

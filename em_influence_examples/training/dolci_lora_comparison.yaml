@@ -1,0 +1,5 @@
+name: dolci_lora_comparison
+task: lora_sft
+output_root: ../../results/dolci_comparison
+config: ../../templates/dolci_lora_comparison.json
+overrides: {}
