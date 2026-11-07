@@ -1,0 +1,4 @@
+# Optimized midtraining additions to the existing .venv-speedrun environment.
+# FlashAttention 2 must match the installed Torch/CUDA build.
+flash-attn==2.8.3
+liger-kernel==0.8.5

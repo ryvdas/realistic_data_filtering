@@ -1,0 +1,32 @@
+{
+  "dataset": "allenai/Dolci-Think-SFT-7B",
+  "dataset_revision": "83f618e2fe0aed29ee3440a3658a0326c175d09d",
+  "model": "allenai/Olmo-3-1025-7B",
+  "model_revision": "stage2-step47684",
+  "model_commit": "c3c800dc900f3fecc112e8cd6b2a13edabc096e1",
+  "seed": 0,
+  "max_length": 8192,
+  "template_file": "../../templates/olmo3_think_sft_provisional.jinja",
+  "template_source": {
+    "model": "allenai/Olmo-3-7B-Think-SFT",
+    "commit": "6ff857587e040d6d523a3d5f3a56e918f5401d66",
+    "status": "official checkpoint template; user-approved reconstruction choice; original use unverified"
+  },
+  "provenance": {
+    "status": "user-approved Speedrun SFT reconstruction; not an exact reproduction",
+    "original_speedrun_repository": "unavailable",
+    "original_speedrun_template": "unverified",
+    "original_speedrun_schedule": "unverified",
+    "local_benchmark_config": "templates/dolci_lora_comparison.json",
+    "article": "https://www.alignmentforum.org/posts/aTybJ6CPQrxEY8rE2/data-filtering-works-a-lot-worse-than-you-would-expect"
+  },
+  "setting_provenance": {
+    "seed": "local benchmark choice, original not documented",
+    "max_length": "article appendix and user requirement",
+    "template": "official Think-SFT checkpoint; original Speedrun use unverified"
+  },
+  "eligible_reference": 1190000,
+  "count_deviation_threshold": 0.1,
+  "tokenizer_model": "allenai/Olmo-3-7B-Think-SFT",
+  "tokenizer_revision": "6ff857587e040d6d523a3d5f3a56e918f5401d66"
+}

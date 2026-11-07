@@ -135,3 +135,24 @@ recipes, backend selection, and the nine fast offline checks.
     Figure 6's `filter_sweep_*_rubric.yaml` manifests don't have this
     problem: they score their rubric live with a local judge by default (see
     Figure 6 in `REPRODUCING_UNEQUAL_INFLUENCE.md`), no external path needed.
+
+### Completed Speedrun baseline and continued-midtraining pilot
+
+The corrected Speedrun reconstruction at
+`/mnt/ssd-1/ryvaan/em_influence/runs/speedrun_reconstruction_20261024T153637Z`
+used **eight NVIDIA A100-SXM4-40GB GPUs**, as recorded in its saved hardware
+metadata. It processed 65,026,670 Dolci conversation input tokens at 8,272.73
+steady-state input tokens/s with assistant-only loss. The four-A40 measurements
+above describe separate historical benchmarks. The Speedrun rate is only a
+reference for continued mid-training.
+
+The separate continued-midtraining experiment uses the official Olmo 3 7B
+0625/100B pretokenized mixture and all-text causal loss. Its approved
+initialization is `stage1-step1413814`, commit
+`373bad25002f1624757a73235c5ca844c6375c25`, before mid-training. Inputs,
+source-weight inventory, seed-0 sampling plans, and the pilot cache are under
+`/mnt/ssd-1/ryvaan/em_influence/midtrain_lora/`. Configuration is in
+`em_influence_examples/midtraining/lora_1pct.json`. The pilot tests resume before
+measuring throughput. The full 1B non-padding-input-token run is approval-gated
+and must start with fresh adapters from the approved base, not the Speedrun or
+pilot adapter.
